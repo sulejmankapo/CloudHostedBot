@@ -1,54 +1,67 @@
-const Discord = require('discord.js');
-const bot = new Discord.Client();
+'use strict';
 
-const token = 'NDkwMTk0MDc0OTc3MTczNTE0.XhrzCg.8RslMgJ_IZ2J4h6N_MGA8BWOgI4';
+function Queue(options) {
+  if (!(this instanceof Queue)) {
+    return new Queue(options);
+  }
 
-const PREFIX = '!';
+  options = options || {};
+  this.concurrency = options.concurrency || Infinity;
+  this.pending = 0;
+  this.jobs = [];
+  this.cbs = [];
+  this._done = done.bind(this);
+}
 
-var version = '0.	';
+var arrayAddMethods = [
+  'push',
+  'unshift',
+  'splice'
+];
 
-var author = 'SuLeX';
+arrayAddMethods.forEach(function(method) {
+  Queue.prototype[method] = function() {
+    var methodResult = Array.prototype[method].apply(this.jobs, arguments);
+    this._run();
+    return methodResult;
+  };
+});
 
-bot.on('ready', () =>{
-    console.log('This bot is online!');
-})
+Object.defineProperty(Queue.prototype, 'length', {
+  get: function() {
+    return this.pending + this.jobs.length;
+  }
+});
 
-bot.on('message', message=>{
+Queue.prototype._run = function() {
+  if (this.pending === this.concurrency) {
+    return;
+  }
+  if (this.jobs.length) {
+    var job = this.jobs.shift();
+    this.pending++;
+    job(this._done);
+    this._run();
+  }
 
-    let args = message.content.substring(PREFIX.length).split(" ");
-
-    switch(args[0]){
-        case "ping":
-            message.channel.sendMessage('pong!');
-            break;
-        case "version":
-            if(args[0]){
-                message.channel.sendMessage('version ' + version);
-            }else{
-                message.channel.sendMessage('Invalid Command Type !help for commands')
-            }
-            break;
-        case "author":
-            if(args[0]){
-                message.channel.sendMessage('author ' + author);
-            }else{
-                message.channel.sendMessage('Invalid Command Type !help for commands')
-            }
-            break; 
-        case 'clear':
-            if(!args[1]) return message.reply('Error please define secound arg')
-            message.channel.bulkDelete(args[1]);
-            break;
-        case 'help':
-            const embed = new Discord.RichEmbed()
-            .setTitle('Commands')
-            .addField('!version:')
-            .addField('Command creator' , message.author.username)
-            .setColor('#00fff7')
-            .setThumbnail(message.author.avatarURL)
-            message.channel.sendEmbed(embed);
-            break;
+  if (this.pending === 0) {
+    while (this.cbs.length !== 0) {
+      var cb = this.cbs.pop();
+      process.nextTick(cb);
     }
-})
+  }
+};
 
-bot.login(token);
+Queue.prototype.onDone = function(cb) {
+  if (typeof cb === 'function') {
+    this.cbs.push(cb);
+    this._run();
+  }
+};
+
+function done() {
+  this.pending--;
+  this._run();
+}
+
+module.exports = Queue;
